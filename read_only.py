@@ -1,3 +1,6 @@
+#! /usr/bin/env python3
+"""Use only on RPI"""
+
 import depthai as dai
 from time import sleep
 import datetime
@@ -86,12 +89,12 @@ def main():
     
     with dai.Device(pipeline) as device, SerialPort('/dev/serial0') as port:
         q_cam_ctrl: dai.DataInputQueue  = device.getInputQueue('cam_ctrl', 1, blocking=False)
-        q_manip_img: dai.DataInputQueue = device.getInputQueue('manip_img', 4, blocking=False)
-        q_manip_cfg: dai.DataInputQueue = device.getInputQueue('manip_cfg', 4, blocking=False)
+        q_manip_img: dai.DataInputQueue = device.getInputQueue('manip_img', 6, blocking=False)
+        q_manip_cfg: dai.DataInputQueue = device.getInputQueue('manip_cfg', 6, blocking=False)
 
         q_detnn_out: dai.DataOutputQueue  = device.getOutputQueue('detnn_out', 1, blocking=False)
         q_detnn_pass: dai.DataOutputQueue = device.getOutputQueue('detnn_pass', 1, blocking=False)
-        q_recnn_out: dai.DataOutputQueue  = device.getOutputQueue('recnn_out', 4, blocking=False)
+        q_recnn_out: dai.DataOutputQueue  = device.getOutputQueue('recnn_out', 6, blocking=True)
 
         # set camera settings
         ctrl: dai.CameraControl = dai.CameraControl()
@@ -126,7 +129,6 @@ def main():
                     # if there is more than one detection (idx != 0) reuse image
                     cfg.setReusePreviousImage(True)
                 q_manip_cfg.send(cfg)
-                sleep(0.001)
 
 
             while True:
@@ -136,9 +138,7 @@ def main():
                     break
                 
                 # decode and send
-                text = tr12.decode(recnn_out)
-                port.send(text)
+                port.send(tr12.decode(recnn_out))
     
 if __name__ == '__main__':
     main()
-
