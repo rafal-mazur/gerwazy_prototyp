@@ -1,24 +1,24 @@
+# TODO: cropped stack
+
 import argparse
 import depthai as dai
 import cv2
 import numpy as np
 import time
 import sys
+import copy
 
 import decoding.east256x256 as east
 import decoding.text_recognition_0012 as tr12
-import utils.communication as comm
-from utils.geometry import RRect
 from utils.pipeline import create_pipeline
 from utils.Logger import Logger, Color
-from utils.communication import Message, SerialPort
+from utils.communication import SerialPort
 
 logger = Logger()
 
 def parse_args():
     parser = argparse.ArgumentParser(prog='Gerwazy')
-
-    parser.add_argument('port', type=str, help='Name of the serial port to use')
+    parser.add_argument('--port', type=str, default='/dev/serial0', help='Name of the serial port to use')
     parser.add_argument('--baudrate', type=int, default=9600)
     parser.add_argument('--bytesize', type=int, default=8)
     parser.add_argument('--parity', type=str, default='N')
@@ -34,7 +34,7 @@ def parse_args():
 def main(args):
     logger('Creating pipeline...')
     pipeline: dai.Pipeline = create_pipeline()
-    logger('Done\n', color=Color.GREEN)
+    logger.done()
 
     logger('Opening serial port and device...')
 
@@ -45,7 +45,7 @@ def main(args):
                                                     args.parity,
                                                     args.stopbits,
                                                     args.timeout) as port:
-        logger('Done\n', color=Color.GREEN)
+        logger.done()
         logger('USB speed:', device.getUsbSpeed().name)
 
         logger(f'\nAvaillable input queues: {device.getInputQueueNames()}')
@@ -61,7 +61,7 @@ def main(args):
         q_manip_out: dai.DataOutputQueue  = device.getOutputQueue('manip_out', 1, blocking=False)
         q_recnn_out: dai.DataOutputQueue  = device.getOutputQueue('recnn_out', 1, blocking=False)
 
-        logger('Done\n', color=Color.GREEN)
+        logger.done()
 
         ctrl: dai.CameraControl = dai.CameraControl()
         ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.AUTO)
@@ -73,8 +73,11 @@ def main(args):
 
         while True:
             time.sleep(0.01)
+            
+            # get detection output
             detnn_output: dai.NNData = q_detnn_out.get()
-            detnn_pass: dai.ImgFrame = q_detnn_pass.get().getCvFrame()
+            detnn_pass: np.ndarray = q_detnn_pass.get().getCvFrame()
+            preview_frame: np.ndarray = copy.deepcopy(detnn_pass)
 
             # decode detection;
             for idx, (rect, _) in enumerate(east.decode(detnn_output)):
@@ -92,8 +95,18 @@ def main(args):
                     imgFrame.setHeight(h)
                     q_manip_img.send(imgFrame)
                 else:
+                    # if there is more than one detection (idx != 0) reuse image
                     cfg.setReusePreviousImage(True)
                 q_manip_cfg.send(cfg)
+                
+                # add bounding box to image
+                if args.preview:
+                    preview_frame = cv2.polylines(preview_frame, [rect.get_rotated_points()], True, (255,0,0), 1, cv2.LINE_8)
+            
+            # show preview
+            if args.preview:
+                cv2.imshow('preview', preview_frame)
+
 
             # harvest all availlable recognitions
             while True:
@@ -103,10 +116,9 @@ def main(args):
                     break
                 
                 # send to another device
-                message = Message(tr12.decode(recnn_out))
-                logger(message)
-                port.send(message)
+                port.send(tr12.decode(recnn_out))
 
+            
             if cv2.waitKey(1) == ord('q'):
                 break
 
@@ -114,6 +126,6 @@ def main(args):
 if __name__ == '__main__':
     args = parse_args()
     logger.set_logging(args.verbose)
-    logger('Starting program', color=Color.HEADER)
+    logger('Starting program\n', color=Color.HEADER)
     main(args)
 

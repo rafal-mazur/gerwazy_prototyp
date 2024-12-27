@@ -1,0 +1,2 @@
+EAST detection: C:\Users\Rafa³\.cache\blobconverter\east_text_detection_256x256_openvino_2021.2_6shave.blob
+Recognition: C:\Users\Rafa³\.cache\blobconverter\text-recognition-0012_openvino_2021.2_6shave.blob

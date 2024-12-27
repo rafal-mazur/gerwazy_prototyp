@@ -1,15 +1,11 @@
 import depthai as dai
-import cv2
-import numpy as np
 from time import sleep
 import datetime
 from pathlib import Path
 
 import decoding.east256x256 as east
 import decoding.text_recognition_0012 as tr12
-import utils.communication as comm
-from utils.geometry import RRect
-import utils.Logger as Logger
+from utils.communication import SerialPort
 
 
 def create_pipeline() -> dai.Pipeline:
@@ -84,21 +80,20 @@ def create_pipeline() -> dai.Pipeline:
 
 
 
-def raw_read(args):
+def main():
     pipeline: dai.Pipeline = create_pipeline()
 
     
-    with dai.Device(pipeline) as device:
+    with dai.Device(pipeline) as device, SerialPort('/dev/serial0') as port:
         q_cam_ctrl: dai.DataInputQueue  = device.getInputQueue('cam_ctrl', 1, blocking=False)
         q_manip_img: dai.DataInputQueue = device.getInputQueue('manip_img', 4, blocking=False)
         q_manip_cfg: dai.DataInputQueue = device.getInputQueue('manip_cfg', 4, blocking=False)
 
         q_detnn_out: dai.DataOutputQueue  = device.getOutputQueue('detnn_out', 1, blocking=False)
         q_detnn_pass: dai.DataOutputQueue = device.getOutputQueue('detnn_pass', 1, blocking=False)
-        q_manip_out: dai.DataOutputQueue  = device.getOutputQueue('manip_out', 1, blocking=False)
-        q_recnn_out: dai.DataOutputQueue  = device.getOutputQueue('recnn_out', 1, blocking=False)
+        q_recnn_out: dai.DataOutputQueue  = device.getOutputQueue('recnn_out', 4, blocking=False)
 
-
+        # set camera settings
         ctrl: dai.CameraControl = dai.CameraControl()
         ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.AUTO)
         ctrl.setAutoFocusTrigger()
@@ -113,8 +108,8 @@ def raw_read(args):
 
             # decode detection
             for idx, (rect, _) in enumerate(east.decode(detnn_output)):
-                
 
+                # create bounding rect
                 cfg: dai.ImageManipConfig = dai.ImageManipConfig()
                 cfg.setCropRotatedRect(rect.get_depthai_RotatedRect(), False)
                 cfg.setResize(120, 32)
@@ -128,23 +123,22 @@ def raw_read(args):
                     imgFrame.setHeight(h)
                     q_manip_img.send(imgFrame)
                 else:
+                    # if there is more than one detection (idx != 0) reuse image
                     cfg.setReusePreviousImage(True)
                 q_manip_cfg.send(cfg)
+                sleep(0.001)
 
-            
+
             while True:
                 recnn_out: dai.NNData|None = q_recnn_out.tryGet()
 
                 if recnn_out is None:
                     break
                 
+                # decode and send
                 text = tr12.decode(recnn_out)
-                print(text)
-                # TODO: send to another device
-
-
-
-            if cv2.waitKey(1) == ord('q'):
-                break
-
+                port.send(text)
+    
+if __name__ == '__main__':
+    main()
 
